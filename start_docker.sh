@@ -26,7 +26,7 @@ start_containter(){
 }
 
 build_frameware(){
-  docker exec -it ${DOCEKR_NAME} bash -c "cd /src/NxtPX4/PX4-Autopilot; make clean ; make matek_h743-slim";
+  docker exec -it ${DOCEKR_NAME} bash -c "cd /src/NxtPX4/PX4-Autopilot; make clean ; make hkust_nxt";
   stop_container
 }
 
@@ -48,7 +48,7 @@ build_run_container(){
   -p 14556:14556/udp \
   --name=${DOCEKR_NAME} ${DOCKER_IMAGE_VERSION};
   # bash -c "cd /src/NxtPX4/PX4-Autopilot";
-  bash -c "cd /src/NxtPX4/PX4-Autopilot; make clean ; make matek_h743-slim";
+  bash -c "cd /src/NxtPX4/PX4-Autopilot; make clean ; make hkust_nxt";
   return 0
 }
 
