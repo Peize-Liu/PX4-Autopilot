@@ -105,25 +105,25 @@ __EXPORT void board_peripheral_reset(int ms)
 {
 	/* set the peripheral rails off */
 
-	VDD_5V_PERIPH_EN(false);
+	// VDD_5V_PERIPH_EN(false);
 	board_control_spi_sensors_power(false, 0xffff);
-	VDD_3V3_SENSORS_EN(false);
+	// VDD_3V3_SENSORS_EN(false);
 
-	bool last = READ_VDD_3V3_SPEKTRUM_POWER_EN();
+	// bool last = READ_VDD_3V3_SPEKTRUM_POWER_EN();
 	/* Keep Spektum on to discharge rail*/
-	VDD_3V3_SPEKTRUM_POWER_EN(false);
+	// VDD_3V3_SPEKTRUM_POWER_EN(false);
 
 	/* wait for the peripheral rail to reach GND */
-	usleep(ms * 1000);
+	// usleep(ms * 1000);
 	syslog(LOG_DEBUG, "reset done, %d ms\n", ms);
 
 	/* re-enable power */
 
 	/* switch the peripheral rail back on */
-	VDD_3V3_SPEKTRUM_POWER_EN(last);
+	// VDD_3V3_SPEKTRUM_POWER_EN(last);
 	board_control_spi_sensors_power(true, 0xffff);
-	VDD_3V3_SENSORS_EN(true);
-	VDD_5V_PERIPH_EN(true);
+	// VDD_3V3_SENSORS_EN(true);
+	// VDD_5V_PERIPH_EN(true);
 
 }
 
@@ -214,25 +214,25 @@ stm32_boardinitialize(void)
 __EXPORT int board_app_initialize(uintptr_t arg)
 {
 	/* Power on Interfaces */
-	VDD_3V3_SD_CARD_EN(true);
-	VDD_5V_PERIPH_EN(true);
-	VDD_5V_HIPOWER_EN(true);
+	// VDD_3V3_SD_CARD_EN(true);
+	// VDD_5V_PERIPH_EN(true);
+	// VDD_5V_HIPOWER_EN(true);
 	board_spi_reset(10, 0xffff);
-	VDD_3V3_SENSORS_EN(true);
-	VDD_3V3_SPEKTRUM_POWER_EN(true);
+	// VDD_3V3_SENSORS_EN(true);
+	// VDD_3V3_SPEKTRUM_POWER_EN(true);
 
 	/* Need hrt running before using the ADC */
 
 	px4_platform_init();
 
 
-	if (OK == board_determine_hw_info()) {
-		syslog(LOG_INFO, "[boot] Rev 0x%1x : Ver 0x%1x %s\n", board_get_hw_revision(), board_get_hw_version(),
-		       board_get_hw_type_name());
+	// if (OK == board_determine_hw_info()) {
+	// 	syslog(LOG_INFO, "[boot] Rev 0x%1x : Ver 0x%1x %s\n", board_get_hw_revision(), board_get_hw_version(),
+	// 	       board_get_hw_type_name());
 
-	} else {
-		syslog(LOG_ERR, "[boot] Failed to read HW revision and version\n");
-	}
+	// } else {
+	// 	syslog(LOG_ERR, "[boot] Failed to read HW revision and version\n");
+	// }
 
 	/* configure the DMA allocator */
 
@@ -258,8 +258,8 @@ __EXPORT int board_app_initialize(uintptr_t arg)
 
 	// Ensure Power is off for > 10 mS
 	usleep(15 * 1000);
-	VDD_3V3_SD_CARD_EN(true);
-	usleep(500 * 1000);
+	// VDD_3V3_SD_CARD_EN(true);
+	// usleep(500 * 1000);
 
 #ifdef CONFIG_MMCSD
 	int ret = stm32_sdio_initialize();
