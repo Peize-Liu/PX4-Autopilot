@@ -41,6 +41,8 @@
 #include <uORB/topics/vehicle_air_data.h>
 #include <uORB/topics/vehicle_imu.h>
 #include <uORB/topics/vehicle_magnetometer.h>
+#include <uORB/topics/vehicle_angular_velocity.h>
+#include <uORB/topics/vehicle_acceleration.h>
 
 using matrix::Vector3f;
 
@@ -63,33 +65,36 @@ public:
 private:
 	explicit MavlinkStreamHighresIMU(Mavlink *mavlink) : MavlinkStream(mavlink) {}
 
-	uORB::SubscriptionMultiArray<vehicle_imu_s, 3> _vehicle_imu_subs{ORB_ID::vehicle_imu};
+	// uORB::SubscriptionMultiArray<vehicle_imu_s, 3> _vehicle_imu_subs{ORB_ID::vehicle_imu};
 	uORB::Subscription _estimator_sensor_bias_sub{ORB_ID(estimator_sensor_bias)};
-	uORB::Subscription _estimator_selector_status_sub{ORB_ID(estimator_selector_status)};
-	uORB::Subscription _sensor_selection_sub{ORB_ID(sensor_selection)};
+	// uORB::Subscription _estimator_selector_status_sub{ORB_ID(estimator_selector_status)};
+	// uORB::Subscription _sensor_selection_sub{ORB_ID(sensor_selection)};
 	uORB::Subscription _differential_pressure_sub{ORB_ID(differential_pressure)};
 	uORB::Subscription _magnetometer_sub{ORB_ID(vehicle_magnetometer)};
 	uORB::Subscription _air_data_sub{ORB_ID(vehicle_air_data)};
+	uORB::Subscription _vehicle_acc_sub{ORB_ID(vehicle_acceleration)};
+	uORB::Subscription _vehicle_angular_vel_sub{ORB_ID(vehicle_angular_velocity)};
+	vehicle_acceleration_s vehicle_acc;
+	vehicle_angular_velocity_s vehicle_angular_vel;
+	bool vehicle_acc_updated = false, vehicle_angular_vel_updated = false;
+	uint64_t time_usec{0};
 
 	bool send() override
 	{
-		bool updated = false;
 
-		sensor_selection_s sensor_selection{};
-		_sensor_selection_sub.copy(&sensor_selection);
-
-		vehicle_imu_s imu;
-
-		for (auto &imu_sub : _vehicle_imu_subs) {
-			if (imu_sub.update(&imu)) {
-				if (imu.accel_device_id == sensor_selection.accel_device_id) {
-					updated = true;
-					break;
-				}
-			}
+		//Check if accel and gyro are updated
+		if (_vehicle_acc_sub.update(&vehicle_acc)) {
+			vehicle_acc_updated = true;
+			time_usec = vehicle_acc.timestamp_sample;
+		}
+		if (_vehicle_angular_vel_sub.update(&vehicle_angular_vel)) {
+			vehicle_angular_vel_updated = true;
+			time_usec = vehicle_angular_vel.timestamp_sample;
 		}
 
-		if (updated) {
+		if (vehicle_acc_updated && vehicle_angular_vel_updated) {
+			vehicle_acc_updated = false;
+			vehicle_angular_vel_updated = false;
 			uint16_t fields_updated = 0;
 
 			fields_updated |= (1 << 0) | (1 << 1) | (1 << 2); // accel
@@ -106,13 +111,6 @@ private:
 			}
 
 			// find corresponding estimated sensor bias
-			if (_estimator_selector_status_sub.updated()) {
-				estimator_selector_status_s estimator_selector_status;
-
-				if (_estimator_selector_status_sub.copy(&estimator_selector_status)) {
-					_estimator_sensor_bias_sub.ChangeInstance(estimator_selector_status.primary_instance);
-				}
-			}
 
 			Vector3f accel_bias{0.f, 0.f, 0.f};
 			Vector3f gyro_bias{0.f, 0.f, 0.f};
@@ -122,13 +120,13 @@ private:
 				estimator_sensor_bias_s bias;
 
 				if (_estimator_sensor_bias_sub.copy(&bias)) {
-					if ((bias.accel_device_id != 0) && (bias.accel_device_id == imu.accel_device_id)) {
-						accel_bias = Vector3f{bias.accel_bias};
-					}
+					// if ((bias.accel_device_id != 0) && (bias.accel_device_id == imu.accel_device_id)) {
+					// 	accel_bias = Vector3f{bias.accel_bias};
+					// }
 
-					if ((bias.gyro_device_id != 0) && (bias.gyro_device_id == imu.gyro_device_id)) {
-						gyro_bias = Vector3f{bias.gyro_bias};
-					}
+					// if ((bias.gyro_device_id != 0) && (bias.gyro_device_id == imu.gyro_device_id)) {
+					// 	gyro_bias = Vector3f{bias.gyro_bias};
+					// }
 
 					if ((bias.mag_device_id != 0) && (bias.mag_device_id == magnetometer.device_id)) {
 						mag_bias = Vector3f{bias.mag_bias};
@@ -172,15 +170,13 @@ private:
 				_differential_pressure_sub.copy(&differential_pressure);
 			}
 
-			const float accel_dt_inv = 1.e6f / (float)imu.delta_velocity_dt;
-			const Vector3f accel = (Vector3f{imu.delta_velocity} * accel_dt_inv) - accel_bias;
+			const Vector3f accel{vehicle_acc.xyz};
 
-			const float gyro_dt_inv = 1.e6f / (float)imu.delta_angle_dt;
-			const Vector3f gyro = (Vector3f{imu.delta_angle} * gyro_dt_inv) - gyro_bias;
+			const Vector3f gyro{vehicle_angular_vel.xyz};
 
 			mavlink_highres_imu_t msg{};
 
-			msg.time_usec = imu.timestamp_sample;
+			msg.time_usec = time_usec;
 			msg.xacc = accel(0);
 			msg.yacc = accel(1);
 			msg.zacc = accel(2);

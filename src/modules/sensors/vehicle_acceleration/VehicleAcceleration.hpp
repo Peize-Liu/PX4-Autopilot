@@ -99,7 +99,7 @@ private:
 
 	DEFINE_PARAMETERS(
 		(ParamFloat<px4::params::IMU_ACCEL_CUTOFF>) _param_imu_accel_cutoff,
-		(ParamInt<px4::params::IMU_INTEG_RATE>) _param_imu_integ_rate
+		(ParamInt<px4::params::IMU_GYRO_RATEMAX>) _param_imu_integ_rate
 	)
 };
 
