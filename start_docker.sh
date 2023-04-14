@@ -26,7 +26,7 @@ start_containter(){
 }
 
 build_frameware(){
-  docker exec -it ${DOCEKR_NAME} bash -c "cd /src/NxtPX4/PX4-Autopilot; make clean ; make hkust_nxt";
+  docker exec -it ${DOCEKR_NAME} bash -c "cd /src/NxtPX4/PX4-Autopilot; make clean ; make $1";
   stop_container
 }
 
@@ -52,6 +52,12 @@ build_run_container(){
   return 0
 }
 
+help(){
+  echo "Usage:    ./start_docker.sh [target]"
+  echo "Example:  ./start_docker.sh hkust_nxt"
+  echo "          ./start_docker.sh hkust_nxt_bootloader"
+}
+
 main(){
   docker_exist=$(docker ps -a|grep ${DOCEKR_NAME})
   if [ -n "$docker_exist" ]
@@ -60,7 +66,7 @@ main(){
       # stop_container;
       # docker rm NxtCompileContainer
       start_containter;
-      build_frameware;
+      build_frameware $1;
     else
       echo "############ error: Docker container does not exist, setup container#############"
       check_image
@@ -80,7 +86,12 @@ main(){
   fi
 }
 
-main $1
+if [ $# -ne 1 ]
+  then
+    help
+  else
+    main $1
+fi
 
 
 
