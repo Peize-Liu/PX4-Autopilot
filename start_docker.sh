@@ -28,7 +28,7 @@ start_containter(){
 }
 
 build_frameware(){
-  docker exec -it ${DOCEKR_NAME} bash -c "cd /src/NxtPX4/PX4-Autopilot; make clean ; make $1"
+  docker exec ${DOCEKR_NAME} bash -c "cd /src/NxtPX4/PX4-Autopilot; make clean ; make $1"
   stop_container
 }
 
