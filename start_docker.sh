@@ -18,15 +18,15 @@ check_image(){
 }
 
 stop_container(){
-  docker stop ${DOCEKR_NAME};
+  docker stop ${DOCEKR_NAME}
 }
 
 start_containter(){
-  docker start ${DOCEKR_NAME};
+  docker start ${DOCEKR_NAME}
 }
 
 build_frameware(){
-  docker exec -it ${DOCEKR_NAME} bash -c "cd /src/NxtPX4/PX4-Autopilot; make clean ; make $1";
+  docker exec -it ${DOCEKR_NAME} bash -c "cd /src/NxtPX4/PX4-Autopilot; make clean ; make $1"
   stop_container
 }
 
@@ -38,17 +38,14 @@ build_run_container(){
     then
       echo "Path: ${VOLUME_PATH} is not NxtPX4 repo please run this script under xxx/NxtPX4/PX4-Autopilot/"
   fi
-  # check mount dir
 
-  docker run -dit --privileged \
+  docker run --rm -dit --privileged \
   --env=LOCAL_USER_ID="$(id -u)" \
   -v ${VOLUME_PATH}:/src/NxtPX4/:rw \
   -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
   -e DISPLAY=:0 \
   -p 14556:14556/udp \
-  --name=${DOCEKR_NAME} ${DOCKER_IMAGE_VERSION};
-  # bash -c "cd /src/NxtPX4/PX4-Autopilot";
-  bash -c "cd /src/NxtPX4/PX4-Autopilot; make clean ; make hkust_nxt";
+  --name=${DOCEKR_NAME} ${DOCKER_IMAGE_VERSION}
   return 0
 }
 
@@ -58,32 +55,29 @@ help(){
   echo "          ./start_docker.sh hkust_nxt_bootloader"
 }
 
+check_docker(){
+  echo "Check Docker......"
+  docker -v
+  if [ $? -ne 0 ]
+    then
+      echo "Install docker using the following command:"
+      echo "curl -sSL https://get.daocloud.io/docker | sh"
+      exit 1
+  fi
+}
+
 main(){
+  check_docker
   docker_exist=$(docker ps -a|grep ${DOCEKR_NAME})
   if [ -n "$docker_exist" ]
     then
       echo "Docker container exist start container to compile"
-      # stop_container;
-      # docker rm NxtCompileContainer
-      start_containter;
-      build_frameware $1;
+      start_containter
     else
-      echo "############ error: Docker container does not exist, setup container#############"
-      check_image
-      if [ $? == 0 ]
-        then
-          echo "build run container"
-          build_run_container
-          stop_container
-        else
-          echo "download image"
-          pull_docker
-          echo "build container"
-          build_run_container
-          echo "stop container"
-          stop_container
-      fi
+      echo "build run container"
+      build_run_container
   fi
+  build_frameware $1
 }
 
 if [ $# -ne 1 ]
@@ -92,6 +86,3 @@ if [ $# -ne 1 ]
   else
     main $1
 fi
-
-
-
