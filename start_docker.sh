@@ -1,5 +1,7 @@
 #!/bin/bash
-source ./nxt_px4_version_info.sh
+script_dir=$(cd $(dirname $0);pwd)
+
+source $script_dir/nxt_px4_version_info.sh
 
 pull_docker(){
   docker pull "${DOCKER_IMAGE_VERSION}"
