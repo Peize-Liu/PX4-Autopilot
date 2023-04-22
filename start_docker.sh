@@ -34,7 +34,7 @@ build_frameware(){
 
 build_run_container(){
   # check mount dir
-  VOLUME_PATH=$(pwd)/../../NxtPX4;
+  VOLUME_PATH=$script_dir/../../NxtPX4;
   echo "Mount ${VOLUME_PATH} to docker:/src/NxtPX4/ "
   if [ ! -d $VOLUME_PATH ]
     then
