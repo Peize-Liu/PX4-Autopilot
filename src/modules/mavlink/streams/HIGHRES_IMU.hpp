@@ -100,18 +100,19 @@ private:
 			fields_updated |= (1 << 0) | (1 << 1) | (1 << 2); // accel
 			fields_updated |= (1 << 3) | (1 << 4) | (1 << 5); // gyro
 
-			vehicle_magnetometer_s magnetometer{};
+			// vehicle_magnetometer_s magnetometer{};
 
-			if (_magnetometer_sub.update(&magnetometer)) {
-				// mark third group dimensions as changed
-				fields_updated |= (1 << 6) | (1 << 7) | (1 << 8);
+			// if (_magnetometer_sub.update(&magnetometer)) {
+			// 	// mark third group dimensions as changed
+			// 	fields_updated |= (1 << 6) | (1 << 7) | (1 << 8);
 
-			} else {
-				_magnetometer_sub.copy(&magnetometer);
-			}
+			// } else {
+			// 	_magnetometer_sub.copy(&magnetometer);
+			// }
 
 			// find corresponding estimated sensor bias
 
+#if Remove
 			Vector3f accel_bias{0.f, 0.f, 0.f};
 			Vector3f gyro_bias{0.f, 0.f, 0.f};
 			Vector3f mag_bias{0.f, 0.f, 0.f};
@@ -120,13 +121,13 @@ private:
 				estimator_sensor_bias_s bias;
 
 				if (_estimator_sensor_bias_sub.copy(&bias)) {
-					// if ((bias.accel_device_id != 0) && (bias.accel_device_id == imu.accel_device_id)) {
-					// 	accel_bias = Vector3f{bias.accel_bias};
-					// }
+					if ((bias.accel_device_id != 0) && (bias.accel_device_id == imu.accel_device_id)) {
+						accel_bias = Vector3f{bias.accel_bias};
+					}
 
-					// if ((bias.gyro_device_id != 0) && (bias.gyro_device_id == imu.gyro_device_id)) {
-					// 	gyro_bias = Vector3f{bias.gyro_bias};
-					// }
+					if ((bias.gyro_device_id != 0) && (bias.gyro_device_id == imu.gyro_device_id)) {
+						gyro_bias = Vector3f{bias.gyro_bias};
+					}
 
 					if ((bias.mag_device_id != 0) && (bias.mag_device_id == magnetometer.device_id)) {
 						mag_bias = Vector3f{bias.mag_bias};
@@ -147,29 +148,31 @@ private:
 					}
 				}
 			}
+#endif
 
-			const Vector3f mag = Vector3f{magnetometer.magnetometer_ga} - mag_bias;
+			// const Vector3f mag = Vector3f{magnetometer.magnetometer_ga} - mag_bias;
 
-			vehicle_air_data_s air_data{};
+			// vehicle_air_data_s air_data{};
 
-			if (_air_data_sub.update(&air_data)) {
-				/* mark fourth group (baro fields) dimensions as changed */
-				fields_updated |= (1 << 9) | (1 << 11) | (1 << 12);
+			// if (_air_data_sub.update(&air_data)) {
+			// 	/* mark fourth group (baro fields) dimensions as changed */
+			// 	fields_updated |= (1 << 9) | (1 << 11) | (1 << 12);
 
-			} else {
-				_air_data_sub.copy(&air_data);
-			}
+			// } else {
+			// 	_air_data_sub.copy(&air_data);
+			// }
 
-			differential_pressure_s differential_pressure{};
+			// differential_pressure_s differential_pressure{};
 
-			if (_differential_pressure_sub.update(&differential_pressure)) {
-				/* mark fourth group (dpres field) dimensions as changed */
-				fields_updated |= (1 << 10);
+			// if (_differential_pressure_sub.update(&differential_pressure)) {
+			// 	/* mark fourth group (dpres field) dimensions as changed */
+			// 	fields_updated |= (1 << 10);
 
-			} else {
-				_differential_pressure_sub.copy(&differential_pressure);
-			}
+			// } else {
+			// 	_differential_pressure_sub.copy(&differential_pressure);
+			// }
 
+#if  Remove
 			const Vector3f accel{vehicle_acc.xyz};
 
 			const Vector3f gyro{vehicle_angular_vel.xyz};
@@ -191,7 +194,25 @@ private:
 			msg.pressure_alt = air_data.baro_alt_meter;
 			msg.temperature = air_data.baro_temp_celcius;
 			msg.fields_updated = fields_updated;
+#else
+			mavlink_highres_imu_t msg{};
 
+			msg.time_usec = time_usec;
+			msg.xacc = vehicle_acc.xyz[0];
+			msg.yacc = vehicle_acc.xyz[1];
+			msg.zacc = vehicle_acc.xyz[2];
+			msg.xgyro = vehicle_angular_vel.xyz[0];
+			msg.ygyro = vehicle_angular_vel.xyz[1];
+			msg.zgyro = vehicle_angular_vel.xyz[2];
+			// msg.xmag = mag(0);
+			// msg.ymag = mag(1);
+			// msg.zmag = mag(2);
+			// msg.abs_pressure = air_data.baro_pressure_pa;
+			// msg.diff_pressure = differential_pressure.differential_pressure_pa;
+			// msg.pressure_alt = air_data.baro_alt_meter;
+			// msg.temperature = air_data.baro_temp_celcius;
+			msg.fields_updated = fields_updated;
+#endif
 			mavlink_msg_highres_imu_send_struct(_mavlink->get_channel(), &msg);
 
 			return true;
