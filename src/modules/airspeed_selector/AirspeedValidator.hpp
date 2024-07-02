@@ -56,7 +56,7 @@ struct airspeed_validator_update_data {
 	float airspeed_true_raw;
 	uint64_t airspeed_timestamp;
 	matrix::Vector3f ground_velocity;
-	bool lpos_valid;
+	bool gnss_valid;
 	float lpos_evh;
 	float lpos_evv;
 	matrix::Quatf q_att;
@@ -150,9 +150,7 @@ private:
 	float _tas_innov_threshold{1.0}; ///< innovation error threshold for triggering innovation check failure
 	float _tas_innov_integ_threshold{-1.0}; ///< integrator innovation error threshold for triggering innovation check failure
 	uint64_t	_time_last_aspd_innov_check{0};	///< time airspeed innovation was last checked (uSec)
-	uint64_t	_time_last_tas_pass{0};		///< last time innovation checks passed
 	float		_aspd_innov_integ_state{0.0f};	///< integral of excess normalised airspeed innovation (sec)
-	static constexpr uint64_t TAS_INNOV_FAIL_DELAY{1_s};	///< time required for innovation levels to pass or fail (usec)
 	uint64_t	_time_wind_estimator_initialized{0};		///< time last time wind estimator was initialized (uSec)
 
 	// states of load factor check
@@ -162,8 +160,8 @@ private:
 
 	// states of airspeed valid declaration
 	bool _airspeed_valid{true}; ///< airspeed valid (pitot or groundspeed-windspeed)
-	int _checks_fail_delay{3}; ///< delay for airspeed invalid declaration after single check failure (Sec)
-	int _checks_clear_delay{-1}; ///< delay for airspeed valid declaration after all checks passed again (Sec)
+	float _checks_fail_delay{2.f}; ///< delay for airspeed invalid declaration after single check failure (Sec)
+	float _checks_clear_delay{-1.f}; ///< delay for airspeed valid declaration after all checks passed again (Sec)
 	uint64_t	_time_checks_passed{0};	///< time the checks have last passed (uSec)
 	uint64_t	_time_checks_failed{0};	///< time the checks have last not passed (uSec)
 
@@ -177,15 +175,15 @@ private:
 
 	void update_in_fixed_wing_flight(bool in_fixed_wing_flight) { _in_fixed_wing_flight = in_fixed_wing_flight; }
 
-	void update_wind_estimator(const uint64_t timestamp, float airspeed_true_raw, bool lpos_valid,
+	void update_wind_estimator(const uint64_t timestamp, float airspeed_true_raw, bool gnss_valid,
 				   const matrix::Vector3f &vI,
 				   float lpos_evh, float lpos_evv, const Quatf &q_att);
-	void update_CAS_scale_validated(bool lpos_valid, const matrix::Vector3f &vI, float airspeed_true_raw);
+	void update_CAS_scale_validated(bool gnss_valid, const matrix::Vector3f &vI, float airspeed_true_raw);
 	void update_CAS_scale_applied();
 	void update_CAS_TAS(float air_pressure_pa, float air_temperature_celsius);
 	void check_airspeed_data_stuck(uint64_t timestamp);
 	void check_airspeed_innovation(uint64_t timestamp, float estimator_status_vel_test_ratio,
-				       float estimator_status_mag_test_ratio, const matrix::Vector3f &vI, bool lpos_valid);
+				       float estimator_status_mag_test_ratio, const matrix::Vector3f &vI, bool gnss_valid);
 	void check_load_factor(float accel_z);
 	void update_airspeed_valid_status(const uint64_t timestamp);
 	void reset();

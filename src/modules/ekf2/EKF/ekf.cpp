@@ -71,6 +71,11 @@ void Ekf::reset()
 #if defined(CONFIG_EKF2_WIND)
 	_state.wind_vel.setZero();
 #endif // CONFIG_EKF2_WIND
+	//
+#if defined(CONFIG_EKF2_TERRAIN)
+	// assume a ground clearance
+	_state.terrain = _state.pos(2) + _params.rng_gnd_clearance;
+#endif // CONFIG_EKF2_TERRAIN
 
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 	_range_sensor.setPitchOffset(_params.rng_sens_pitch);
@@ -122,54 +127,10 @@ void Ekf::reset()
 
 	_time_bad_vert_accel = 0;
 	_time_good_vert_accel = 0;
-	_clip_counter = 0;
 
-#if defined(CONFIG_EKF2_BAROMETER)
-	resetEstimatorAidStatus(_aid_src_baro_hgt);
-#endif // CONFIG_EKF2_BAROMETER
-#if defined(CONFIG_EKF2_AIRSPEED)
-	resetEstimatorAidStatus(_aid_src_airspeed);
-#endif // CONFIG_EKF2_AIRSPEED
-#if defined(CONFIG_EKF2_SIDESLIP)
-	resetEstimatorAidStatus(_aid_src_sideslip);
-#endif // CONFIG_EKF2_SIDESLIP
-
-	resetEstimatorAidStatus(_aid_src_fake_pos);
-	resetEstimatorAidStatus(_aid_src_fake_hgt);
-
-#if defined(CONFIG_EKF2_EXTERNAL_VISION)
-	resetEstimatorAidStatus(_aid_src_ev_hgt);
-	resetEstimatorAidStatus(_aid_src_ev_pos);
-	resetEstimatorAidStatus(_aid_src_ev_vel);
-	resetEstimatorAidStatus(_aid_src_ev_yaw);
-#endif // CONFIG_EKF2_EXTERNAL_VISION
-
-#if defined(CONFIG_EKF2_GNSS)
-	resetEstimatorAidStatus(_aid_src_gnss_hgt);
-	resetEstimatorAidStatus(_aid_src_gnss_pos);
-	resetEstimatorAidStatus(_aid_src_gnss_vel);
-
-# if defined(CONFIG_EKF2_GNSS_YAW)
-	resetEstimatorAidStatus(_aid_src_gnss_yaw);
-# endif // CONFIG_EKF2_GNSS_YAW
-#endif // CONFIG_EKF2_GNSS
-
-#if defined(CONFIG_EKF2_MAGNETOMETER)
-	resetEstimatorAidStatus(_aid_src_mag);
-#endif // CONFIG_EKF2_MAGNETOMETER
-
-#if defined(CONFIG_EKF2_AUXVEL)
-	resetEstimatorAidStatus(_aid_src_aux_vel);
-#endif // CONFIG_EKF2_AUXVEL
-
-#if defined(CONFIG_EKF2_OPTICAL_FLOW)
-	resetEstimatorAidStatus(_aid_src_optical_flow);
-	resetEstimatorAidStatus(_aid_src_terrain_optical_flow);
-#endif // CONFIG_EKF2_OPTICAL_FLOW
-
-#if defined(CONFIG_EKF2_RANGE_FINDER)
-	resetEstimatorAidStatus(_aid_src_rng_hgt);
-#endif // CONFIG_EKF2_RANGE_FINDER
+	for (auto &clip_count : _clip_counter) {
+		clip_count = 0;
+	}
 
 	_zero_velocity_update.reset();
 }
@@ -207,11 +168,6 @@ bool Ekf::update()
 		// control fusion of observation data
 		controlFusionModes(imu_sample_delayed);
 
-#if defined(CONFIG_EKF2_TERRAIN)
-		// run a separate filter for terrain estimation
-		runTerrainEstimator(imu_sample_delayed);
-#endif // CONFIG_EKF2_TERRAIN
-
 		_output_predictor.correctOutputStates(imu_sample_delayed.time_us, _state.quat_nominal, _state.vel, _state.pos, _state.gyro_bias, _state.accel_bias);
 
 		return true;
@@ -246,11 +202,6 @@ bool Ekf::initialiseFilter()
 
 	// initialise the state covariance matrix now we have starting values for all the states
 	initialiseCovariance();
-
-#if defined(CONFIG_EKF2_TERRAIN)
-	// Initialise the terrain estimator
-	initHagl();
-#endif // CONFIG_EKF2_TERRAIN
 
 	// reset the output predictor state history to match the EKF initial values
 	_output_predictor.alignOutputFilter(_state.quat_nominal, _state.vel, _state.pos);
@@ -332,7 +283,6 @@ void Ekf::predictState(const imuSample &imu_delayed)
 
 void Ekf::resetGlobalPosToExternalObservation(double lat_deg, double lon_deg, float accuracy, uint64_t timestamp_observation)
 {
-
 	if (!_pos_ref.isInitialized()) {
 		return;
 	}
@@ -344,7 +294,10 @@ void Ekf::resetGlobalPosToExternalObservation(double lat_deg, double lon_deg, fl
 
 	Vector2f pos_corrected = _pos_ref.project(lat_deg, lon_deg) + _state.vel.xy() * dt;
 
-	resetHorizontalPositionToExternal(pos_corrected, math::max(accuracy, FLT_EPSILON));
+	resetHorizontalPositionTo(pos_corrected, sq(math::max(accuracy, 0.01f)));
+
+	ECL_INFO("reset position to external observation");
+	_information_events.flags.reset_pos_to_ext_obs = true;
 }
 
 void Ekf::updateParameters()
@@ -421,6 +374,14 @@ void Ekf::print_status()
 	       (double)getStateVariance<State::wind_vel>()(0), (double)getStateVariance<State::wind_vel>()(1)
 	      );
 #endif // CONFIG_EKF2_WIND
+
+#if defined(CONFIG_EKF2_TERRAIN)
+	printf("Terrain position (%d): %.3f var: %.1e\n",
+	       State::terrain.idx,
+	       (double)_state.terrain,
+	       (double)getStateVariance<State::terrain>()(0)
+	      );
+#endif // CONFIG_EKF2_TERRAIN
 
 	printf("\nP:\n");
 	P.print();

@@ -33,12 +33,6 @@
 
 /**
  * @file optflow_fusion.cpp
- * Function for fusing gps and baro measurements/
- * equations generated using EKF/python/ekf_derivation/main.py
- *
- * @author Paul Riseborough <p_riseborough@live.com.au>
- * @author Siddharth Bharat Purohit <siddharthbharatpurohit@gmail.com>
- *
  */
 
 #include "ekf.h"
@@ -50,9 +44,6 @@
 
 void Ekf::updateOptFlow(estimator_aid_source2d_s &aid_src)
 {
-	resetEstimatorAidStatus(aid_src);
-	aid_src.timestamp_sample = _flow_sample_delayed.time_us;
-
 	const Vector2f vel_body = predictFlowVelBody();
 	const float range = predictFlowRange();
 
@@ -66,27 +57,29 @@ void Ekf::updateOptFlow(estimator_aid_source2d_s &aid_src)
 	_flow_vel_body(1) =  opt_flow_rate(0) * range;
 	_flow_vel_ne = Vector2f(_R_to_earth * Vector3f(_flow_vel_body(0), _flow_vel_body(1), 0.f));
 
-	aid_src.observation[0] = opt_flow_rate(0); // flow around the X axis
-	aid_src.observation[1] = opt_flow_rate(1); // flow around the Y axis
-
-	aid_src.innovation[0] =  (vel_body(1) / range) - aid_src.observation[0];
-	aid_src.innovation[1] = (-vel_body(0) / range) - aid_src.observation[1];
+	Vector2f innovation{
+		(vel_body(1) / range) - opt_flow_rate(0),
+		(-vel_body(0) / range) - opt_flow_rate(1)
+	};
 
 	// calculate the optical flow observation variance
 	const float R_LOS = calcOptFlowMeasVar(_flow_sample_delayed);
-	aid_src.observation_variance[0] = R_LOS;
-	aid_src.observation_variance[1] = R_LOS;
 
 	Vector2f innov_var;
 	VectorState H;
-	sym::ComputeFlowXyInnovVarAndHx(_state.vector(), P, range, R_LOS, FLT_EPSILON, &innov_var, &H);
-	innov_var.copyTo(aid_src.innovation_variance);
+	sym::ComputeFlowXyInnovVarAndHx(_state.vector(), P, R_LOS, FLT_EPSILON, &innov_var, &H);
 
 	// run the innovation consistency check and record result
-	setEstimatorAidStatusTestRatio(aid_src, math::max(_params.flow_innov_gate, 1.f));
+	updateAidSourceStatus(aid_src,
+		_flow_sample_delayed.time_us,  // sample timestamp
+		opt_flow_rate,                 // observation
+		Vector2f{R_LOS, R_LOS},        // observation variance
+		innovation,                    // innovation
+		innov_var,                     // innovation variance
+		math::max(_params.flow_innov_gate, 1.f));      // innovation gate
 }
 
-void Ekf::fuseOptFlow()
+void Ekf::fuseOptFlow(const bool update_terrain)
 {
 	const float R_LOS = _aid_src_optical_flow.observation_variance[0];
 
@@ -98,19 +91,15 @@ void Ekf::fuseOptFlow()
 
 	Vector2f innov_var;
 	VectorState H;
-	sym::ComputeFlowXyInnovVarAndHx(state_vector, P, range, R_LOS, FLT_EPSILON, &innov_var, &H);
+	sym::ComputeFlowXyInnovVarAndHx(state_vector, P, R_LOS, FLT_EPSILON, &innov_var, &H);
 	innov_var.copyTo(_aid_src_optical_flow.innovation_variance);
 
-	if ((_aid_src_optical_flow.innovation_variance[0] < R_LOS)
-	    || (_aid_src_optical_flow.innovation_variance[1] < R_LOS)) {
+	if ((innov_var(0) < R_LOS) || (innov_var(1) < R_LOS)) {
 		// we need to reinitialise the covariance matrix and abort this fusion step
 		ECL_ERR("Opt flow error - covariance reset");
 		initialiseCovariance();
 		return;
 	}
-
-	// run the innovation consistency check and record result
-	setEstimatorAidStatusTestRatio(_aid_src_optical_flow, math::max(_params.flow_innov_gate, 1.f));
 
 	_innov_check_fail_status.flags.reject_optflow_X = (_aid_src_optical_flow.test_ratio[0] > 1.f);
 	_innov_check_fail_status.flags.reject_optflow_Y = (_aid_src_optical_flow.test_ratio[1] > 1.f);
@@ -129,7 +118,7 @@ void Ekf::fuseOptFlow()
 
 		} else if (index == 1) {
 			// recalculate innovation variance because state covariances have changed due to previous fusion (linearise using the same initial state for all axes)
-			sym::ComputeFlowYInnovVarAndH(state_vector, P, range, R_LOS, FLT_EPSILON, &_aid_src_optical_flow.innovation_variance[1], &H);
+			sym::ComputeFlowYInnovVarAndH(state_vector, P, R_LOS, FLT_EPSILON, &_aid_src_optical_flow.innovation_variance[1], &H);
 
 			// recalculate the innovation using the updated state
 			const Vector2f vel_body = predictFlowVelBody();
@@ -145,6 +134,10 @@ void Ekf::fuseOptFlow()
 		}
 
 		VectorState Kfusion = P * H / _aid_src_optical_flow.innovation_variance[index];
+
+		if (!update_terrain) {
+			Kfusion(State::terrain.idx) = 0.f;
+		}
 
 		if (measurementUpdate(Kfusion, H, _aid_src_optical_flow.observation_variance[index], _aid_src_optical_flow.innovation[index])) {
 			fused[index] = true;
@@ -170,10 +163,17 @@ float Ekf::predictFlowRange()
 
 	// calculate the height above the ground of the optical flow camera. Since earth frame is NED
 	// a positive offset in earth frame leads to a smaller height above the ground.
-	const float height_above_gnd_est = math::max(_terrain_vpos - _state.pos(2) - pos_offset_earth(2), fmaxf(_params.rng_gnd_clearance, 0.01f));
+	const float height_above_gnd_est = getHagl() - pos_offset_earth(2);
 
 	// calculate range from focal point to centre of image
-	return height_above_gnd_est / _R_to_earth(2, 2); // absolute distance to the frame region in view
+	float flow_range = height_above_gnd_est / _R_to_earth(2, 2); // absolute distance to the frame region in view
+
+	// avoid the flow prediction singularity at range = 0
+	if (fabsf(flow_range) < FLT_EPSILON) {
+		flow_range = signNoZero(flow_range) * FLT_EPSILON;
+	}
+
+	return flow_range;
 }
 
 Vector2f Ekf::predictFlowVelBody()

@@ -104,27 +104,19 @@ public:
 	uint8_t getTerrainEstimateSensorBitfield() const { return _hagl_sensor_status.value; }
 
 	// get the estimated terrain vertical position relative to the NED origin
-	float getTerrainVertPos() const { return _terrain_vpos; };
+	float getTerrainVertPos() const { return _state.terrain; };
+	float getHagl() const { return _state.terrain - _state.pos(2); }
 
 	// get the number of times the vertical terrain position has been reset
 	uint8_t getTerrainVertPosResetCounter() const { return _terrain_vpos_reset_counter; };
 
 	// get the terrain variance
-	float get_terrain_var() const { return _terrain_var; }
-
-# if defined(CONFIG_EKF2_RANGE_FINDER)
-	const auto &aid_src_terrain_range_finder() const { return _aid_src_terrain_range_finder; }
-# endif // CONFIG_EKF2_RANGE_FINDER
-
-# if defined(CONFIG_EKF2_OPTICAL_FLOW)
-	const auto &aid_src_terrain_optical_flow() const { return _aid_src_terrain_optical_flow; }
-# endif // CONFIG_EKF2_OPTICAL_FLOW
+	float getTerrainVariance() const { return P(State::terrain.idx, State::terrain.idx); }
 
 #endif // CONFIG_EKF2_TERRAIN
 
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 	// range height
-	const BiasEstimator::status &getRngHgtBiasEstimatorStatus() const { return _rng_hgt_b_est.getStatus(); }
 	const auto &aid_src_rng_hgt() const { return _aid_src_rng_hgt; }
 
 	float getHaglRateInnov() const { return _rng_consistency_check.getInnov(); }
@@ -383,13 +375,17 @@ public:
 		*counter = _state_reset_status.reset_count.quat;
 	}
 
-	// get EKF innovation consistency check status information comprising of:
-	// status - a bitmask integer containing the pass/fail status for each EKF measurement innovation consistency check
-	// Innovation Test Ratios - these are the ratio of the innovation to the acceptance threshold.
-	// A value > 1 indicates that the sensor measurement has exceeded the maximum acceptable level and has been rejected by the EKF
-	// Where a measurement type is a vector quantity, eg magnetometer, GPS position, etc, the maximum value is returned.
-	void get_innovation_test_status(uint16_t &status, float &mag, float &vel, float &pos, float &hgt, float &tas,
-					float &hagl, float &beta) const;
+	float getHeadingInnovationTestRatio() const;
+
+	float getVelocityInnovationTestRatio() const;
+
+	float getHorizontalPositionInnovationTestRatio() const;
+	float getVerticalPositionInnovationTestRatio() const;
+
+	float getAirspeedInnovationTestRatio() const;
+	float getSyntheticSideslipInnovationTestRatio() const;
+
+	float getHeightAboveGroundInnovationTestRatio() const;
 
 	// return a bitmask integer that describes which state estimates are valid
 	void get_ekf_soln_status(uint16_t *status) const;
@@ -588,27 +584,14 @@ private:
 
 #if defined(CONFIG_EKF2_TERRAIN)
 	// Terrain height state estimation
-	float _terrain_vpos{0.0f};		///< estimated vertical position of the terrain underneath the vehicle in local NED frame (m)
-	float _terrain_var{1e4f};		///< variance of terrain position estimate (m**2)
 	uint8_t _terrain_vpos_reset_counter{0};	///< number of times _terrain_vpos has been reset
 
 	terrain_fusion_status_u _hagl_sensor_status{}; ///< Struct indicating type of sensor used to estimate height above ground
 	float _last_on_ground_posD{0.0f};	///< last vertical position when the in_air status was false (m)
-
-# if defined(CONFIG_EKF2_RANGE_FINDER)
-	estimator_aid_source1d_s _aid_src_terrain_range_finder{};
-	uint64_t _time_last_healthy_rng_data{0};
-# endif // CONFIG_EKF2_RANGE_FINDER
-
-# if defined(CONFIG_EKF2_OPTICAL_FLOW)
-	estimator_aid_source2d_s _aid_src_terrain_optical_flow{};
-# endif // CONFIG_EKF2_OPTICAL_FLOW
-
 #endif // CONFIG_EKF2_TERRAIN
 
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 	estimator_aid_source1d_s _aid_src_rng_hgt{};
-	HeightBiasEstimator _rng_hgt_b_est{HeightSensor::RANGE, _height_sensor_ref};
 #endif // CONFIG_EKF2_RANGE_FINDER
 
 #if defined(CONFIG_EKF2_OPTICAL_FLOW)
@@ -640,8 +623,6 @@ private:
 	estimator_aid_source2d_s _aid_src_ev_pos{};
 	estimator_aid_source3d_s _aid_src_ev_vel{};
 	estimator_aid_source1d_s _aid_src_ev_yaw{};
-
-	float _ev_yaw_pred_prev{}; ///< previous value of yaw state used by odometry fusion (m)
 
 	uint8_t _nb_ev_pos_reset_available{0};
 	uint8_t _nb_ev_vel_reset_available{0};
@@ -703,10 +684,7 @@ private:
 
 #if defined(CONFIG_EKF2_MAGNETOMETER)
 	// used by magnetometer fusion mode selection
-	bool _yaw_angle_observable{false};	///< true when there is enough horizontal acceleration to make yaw observable
 	AlphaFilter<float> _mag_heading_innov_lpf{0.1f};
-	bool _mag_decl_cov_reset{false};	///< true after the fuseDeclination() function has been used to modify the earth field covariances after a magnetic field reset event.
-	uint8_t _nb_mag_3d_reset_available{0};
 	uint32_t _min_mag_health_time_us{1'000'000}; ///< magnetometer is marked as healthy only after this amount of time
 
 	estimator_aid_source3d_s _aid_src_mag{};
@@ -728,7 +706,7 @@ private:
 	// imu fault status
 	uint64_t _time_bad_vert_accel{0};	///< last time a bad vertical accel was detected (uSec)
 	uint64_t _time_good_vert_accel{0};	///< last time a good vertical accel was detected (uSec)
-	uint16_t _clip_counter{0};		///< counter that increments when clipping ad decrements when not
+	uint16_t _clip_counter[3];		///< counter per axis that increments when clipping ad decrements when not
 
 	// initialise filter states of both the delayed ekf and the real time complementary filter
 	bool initialiseFilter(void);
@@ -750,7 +728,6 @@ private:
 	}
 
 	// update quaternion states and covariances using an innovation, observation variance and Jacobian vector
-	bool fuseYaw(estimator_aid_source1d_s &aid_src_status);
 	bool fuseYaw(estimator_aid_source1d_s &aid_src_status, const VectorState &H_YAW);
 	void computeYawInnovVarAndH(float variance, float &innovation_variance, VectorState &H_YAW) const;
 
@@ -764,8 +741,6 @@ private:
 	// argument passed in is the declination uncertainty in radians
 	bool fuseDeclination(float decl_sigma);
 
-	// apply sensible limits to the declination and length of the NE mag field states estimates
-	void limitDeclination();
 #endif // CONFIG_EKF2_MAGNETOMETER
 
 #if defined(CONFIG_EKF2_AIRSPEED)
@@ -807,8 +782,9 @@ private:
 	void resetHorizontalVelocityToZero();
 
 	void resetVerticalVelocityTo(float new_vert_vel, float new_vert_vel_var);
+
+
 	void resetHorizontalPositionToLastKnown();
-	void resetHorizontalPositionToExternal(const Vector2f &new_horiz_pos, float horiz_accuracy);
 
 	void resetHorizontalPositionTo(const Vector2f &new_horz_pos, const Vector2f &new_horz_pos_var);
 	void resetHorizontalPositionTo(const Vector2f &new_horz_pos, const float pos_var = NAN) { resetHorizontalPositionTo(new_horz_pos, Vector2f(pos_var, pos_var)); }
@@ -820,57 +796,41 @@ private:
 	void resetVerticalVelocityToZero();
 
 	// horizontal and vertical position aid source
-	void updateHorizontalPositionAidSrcStatus(const uint64_t &time_us, const Vector2f &obs, const Vector2f &obs_var, const float innov_gate, estimator_aid_source2d_s &aid_src) const;
-	void updateVerticalPositionAidSrcStatus(const uint64_t &time_us, const float obs, const float obs_var, const float innov_gate, estimator_aid_source1d_s &aid_src) const;
-
-	// 2d & 3d velocity aid source
-	void updateHorizontalVelocityAidSrcStatus(const uint64_t &time_us, const Vector2f &obs, const Vector2f &obs_var, const float innov_gate, estimator_aid_source2d_s &aid_src) const;
-	void updateVelocityAidSrcStatus(const uint64_t &time_us, const Vector3f &obs, const Vector3f &obs_var, const float innov_gate, estimator_aid_source3d_s &aid_src) const;
+	void updateVerticalPositionAidStatus(estimator_aid_source1d_s &aid_src, const uint64_t &time_us, const float observation, const float observation_variance, const float innovation_gate = 1.f) const;
 
 	// horizontal and vertical position fusion
-	void fuseHorizontalPosition(estimator_aid_source2d_s &pos_aid_src);
-	void fuseVerticalPosition(estimator_aid_source1d_s &hgt_aid_src);
+	bool fuseHorizontalPosition(estimator_aid_source2d_s &pos_aid_src);
+	bool fuseVerticalPosition(estimator_aid_source1d_s &hgt_aid_src);
 
 	// 2d & 3d velocity fusion
-	void fuseHorizontalVelocity(estimator_aid_source2d_s &vel_aid_src);
-	void fuseVelocity(estimator_aid_source3d_s &vel_aid_src);
+	bool fuseHorizontalVelocity(estimator_aid_source2d_s &vel_aid_src);
+	bool fuseVelocity(estimator_aid_source3d_s &vel_aid_src);
 
 #if defined(CONFIG_EKF2_TERRAIN)
-	// terrain vertical position estimator
-	void initHagl();
-	void runTerrainEstimator(const imuSample &imu_delayed);
-	void predictHagl(const imuSample &imu_delayed);
-
-	float getTerrainVPos() const { return isTerrainEstimateValid() ? _terrain_vpos : _last_on_ground_posD; }
-
-	void controlHaglFakeFusion();
-	void terrainHandleVerticalPositionReset(float delta_z);
+	void initTerrain();
+	float getTerrainVPos() const { return isTerrainEstimateValid() ? _state.terrain : _last_on_ground_posD; }
+	void controlTerrainFakeFusion();
 
 # if defined(CONFIG_EKF2_RANGE_FINDER)
 	// update the terrain vertical position estimate using a height above ground measurement from the range finder
-	void controlHaglRngFusion();
-	void updateHaglRng(estimator_aid_source1d_s &aid_src) const;
-	void fuseHaglRng(estimator_aid_source1d_s &aid_src);
-	void resetHaglRng();
-	void stopHaglRngFusion();
+	bool fuseHaglRng(estimator_aid_source1d_s &aid_src, bool update_height, bool update_terrain);
+	void updateRangeHagl(estimator_aid_source1d_s &aid_src);
+	void resetTerrainToRng(estimator_aid_source1d_s &aid_src);
 	float getRngVar() const;
 # endif // CONFIG_EKF2_RANGE_FINDER
 
 # if defined(CONFIG_EKF2_OPTICAL_FLOW)
-	// update the terrain vertical position estimate using an optical flow measurement
-	void controlHaglFlowFusion();
-	void resetHaglFlow();
-	void stopHaglFlowFusion();
-	void fuseFlowForTerrain(estimator_aid_source2d_s &flow);
+	void resetTerrainToFlow();
 # endif // CONFIG_EKF2_OPTICAL_FLOW
 
 #endif // CONFIG_EKF2_TERRAIN
 
 #if defined(CONFIG_EKF2_RANGE_FINDER)
 	// range height
-	void controlRangeHeightFusion();
+	void controlRangeHaglFusion();
 	bool isConditionalRangeAidSuitable();
 	void stopRngHgtFusion();
+	void stopRngTerrFusion();
 #endif // CONFIG_EKF2_RANGE_FINDER
 
 #if defined(CONFIG_EKF2_OPTICAL_FLOW)
@@ -891,7 +851,7 @@ private:
 
 	// fuse optical flow line of sight rate measurements
 	void updateOptFlow(estimator_aid_source2d_s &aid_src);
-	void fuseOptFlow();
+	void fuseOptFlow(bool update_terrain);
 	float predictFlowRange();
 	Vector2f predictFlowVelBody();
 #endif // CONFIG_EKF2_OPTICAL_FLOW
@@ -1032,7 +992,6 @@ private:
 	void resetMagStates(const Vector3f &mag, bool reset_heading = true);
 	bool haglYawResetReq();
 
-	void checkYawAngleObservability();
 	void checkMagHeadingConsistency(const magSample &mag_sample);
 
 	bool checkMagField(const Vector3f &mag);
@@ -1136,88 +1095,200 @@ private:
 	bool _ev_q_error_initialized{false};
 #endif // CONFIG_EKF2_EXTERNAL_VISION
 
-	void resetEstimatorAidStatus(estimator_aid_source1d_s &status) const
+	// state was reset to aid source, keep observation and update all other fields appropriately (zero innovation, etc)
+	void resetAidSourceStatusZeroInnovation(estimator_aid_source1d_s &status) const
 	{
-		// only bother resetting if timestamp_sample is set
-		if (status.timestamp_sample != 0) {
-			status.timestamp_sample = 0;
+		status.time_last_fuse = _time_delayed_us;
 
-			// preserve status.time_last_fuse
+		status.innovation = 0.f;
+		status.innovation_filtered = 0.f;
+		status.innovation_variance = status.observation_variance;
 
-			status.observation = 0;
-			status.observation_variance = 0;
+		status.test_ratio = 0.f;
+		status.test_ratio_filtered = 0.f;
 
-			status.innovation = 0;
-			status.innovation_variance = 0;
-			status.test_ratio = INFINITY;
-
-			status.innovation_rejected = true;
-			status.fused = false;
-		}
+		status.innovation_rejected = false;
+		status.fused = true;
 	}
 
-	template <typename T>
-	void resetEstimatorAidStatus(T &status) const
-	{
-		// only bother resetting if timestamp_sample is set
-		if (status.timestamp_sample != 0) {
-			status.timestamp_sample = 0;
-
-			// preserve status.time_last_fuse
-
-			for (size_t i = 0; i < (sizeof(status.observation) / sizeof(status.observation[0])); i++) {
-				status.observation[i] = 0;
-				status.observation_variance[i] = 0;
-
-				status.innovation[i] = 0;
-				status.innovation_variance[i] = 0;
-				status.test_ratio[i] = INFINITY;
-			}
-
-			status.innovation_rejected = true;
-			status.fused = false;
-		}
-	}
-
-	void setEstimatorAidStatusTestRatio(estimator_aid_source1d_s &status, float innovation_gate) const
-	{
-		if (PX4_ISFINITE(status.innovation)
-		    && PX4_ISFINITE(status.innovation_variance)
-		    && (status.innovation_variance > 0.f)
-		   ) {
-			status.test_ratio = sq(status.innovation) / (sq(innovation_gate) * status.innovation_variance);
-			status.innovation_rejected = (status.test_ratio > 1.f);
-
-		} else {
-			status.test_ratio = INFINITY;
-			status.innovation_rejected = true;
-		}
-	}
-
-	template <typename T>
-	void setEstimatorAidStatusTestRatio(T &status, float innovation_gate) const
+	// helper used for populating and filtering estimator aid source struct for logging
+	void updateAidSourceStatus(estimator_aid_source1d_s &status, const uint64_t &timestamp_sample,
+				   const float &observation, const float &observation_variance,
+				   const float &innovation, const float &innovation_variance,
+				   float innovation_gate = 1.f) const
 	{
 		bool innovation_rejected = false;
 
-		for (size_t i = 0; i < (sizeof(status.test_ratio) / sizeof(status.test_ratio[0])); i++) {
-			if (PX4_ISFINITE(status.innovation[i])
-			    && PX4_ISFINITE(status.innovation_variance[i])
-			    && (status.innovation_variance[i] > 0.f)
-			   ) {
-				status.test_ratio[i] = sq(status.innovation[i]) / (sq(innovation_gate) * status.innovation_variance[i]);
+		const float test_ratio = sq(innovation) / (sq(innovation_gate) * innovation_variance);
 
-				if (status.test_ratio[i] > 1.f) {
-					innovation_rejected = true;
+		if ((status.timestamp_sample > 0) && (timestamp_sample > status.timestamp_sample)) {
+
+			const float dt_s = math::constrain((timestamp_sample - status.timestamp_sample) * 1e-6f, 0.001f, 1.f);
+
+			static constexpr float tau = 0.5f;
+			const float alpha = math::constrain(dt_s / (dt_s + tau), 0.f, 1.f);
+
+			// test_ratio_filtered
+			if (PX4_ISFINITE(status.test_ratio_filtered)) {
+				status.test_ratio_filtered += alpha * (matrix::sign(innovation) * test_ratio - status.test_ratio_filtered);
+
+			} else {
+				// otherwise, init the filtered test ratio
+				status.test_ratio_filtered = test_ratio;
+			}
+
+			// innovation_filtered
+			if (PX4_ISFINITE(status.innovation_filtered)) {
+				status.innovation_filtered += alpha * (innovation - status.innovation_filtered);
+
+			} else {
+				// otherwise, init the filtered innovation
+				status.innovation_filtered = innovation;
+			}
+
+
+			// limit extremes in filtered values
+			static constexpr float kNormalizedInnovationLimit = 2.f;
+			static constexpr float kTestRatioLimit = sq(kNormalizedInnovationLimit);
+
+			if (test_ratio > kTestRatioLimit) {
+
+				status.test_ratio_filtered = math::constrain(status.test_ratio_filtered, -kTestRatioLimit, kTestRatioLimit);
+
+				const float innov_limit = kNormalizedInnovationLimit * innovation_gate * sqrtf(innovation_variance);
+				status.innovation_filtered = math::constrain(status.innovation_filtered, -innov_limit, innov_limit);
+			}
+
+		} else {
+			// invalid timestamp_sample, reset
+			status.test_ratio_filtered = test_ratio;
+			status.innovation_filtered = innovation;
+		}
+
+		status.test_ratio = test_ratio;
+
+		status.observation = observation;
+		status.observation_variance = observation_variance;
+
+		status.innovation = innovation;
+		status.innovation_variance = innovation_variance;
+
+		if ((test_ratio > 1.f)
+		    || !PX4_ISFINITE(test_ratio)
+		    || !PX4_ISFINITE(status.innovation)
+		    || !PX4_ISFINITE(status.innovation_variance)
+		   ) {
+			innovation_rejected = true;
+		}
+
+		status.timestamp_sample = timestamp_sample;
+
+		// if any of the innovations are rejected, then the overall innovation is rejected
+		status.innovation_rejected = innovation_rejected;
+
+		// reset
+		status.fused = false;
+	}
+
+	// state was reset to aid source, keep observation and update all other fields appropriately (zero innovation, etc)
+	template <typename T>
+	void resetAidSourceStatusZeroInnovation(T &status) const
+	{
+		status.time_last_fuse = _time_delayed_us;
+
+		for (size_t i = 0; i < (sizeof(status.observation) / sizeof(status.observation[0])); i++) {
+			status.innovation[i] = 0.f;
+			status.innovation_filtered[i] = 0.f;
+			status.innovation_variance[i] = status.observation_variance[i];
+
+			status.test_ratio[i] = 0.f;
+			status.test_ratio_filtered[i] = 0.f;
+		}
+
+		status.innovation_rejected = false;
+		status.fused = true;
+	}
+
+	// helper used for populating and filtering estimator aid source struct for logging
+	template <typename T, typename S>
+	void updateAidSourceStatus(T &status, const uint64_t &timestamp_sample,
+				   const S &observation, const S &observation_variance,
+				   const S &innovation, const S &innovation_variance,
+				   float innovation_gate = 1.f) const
+	{
+		bool innovation_rejected = false;
+
+		const float dt_s = math::constrain((timestamp_sample - status.timestamp_sample) * 1e-6f, 0.001f, 1.f);
+
+		static constexpr float tau = 0.5f;
+		const float alpha = math::constrain(dt_s / (dt_s + tau), 0.f, 1.f);
+
+		for (size_t i = 0; i < (sizeof(status.observation) / sizeof(status.observation[0])); i++) {
+
+			const float test_ratio = sq(innovation(i)) / (sq(innovation_gate) * innovation_variance(i));
+
+			if ((status.timestamp_sample > 0) && (timestamp_sample > status.timestamp_sample)) {
+
+				// test_ratio_filtered
+				if (PX4_ISFINITE(status.test_ratio_filtered[i])) {
+					status.test_ratio_filtered[i] += alpha * (matrix::sign(innovation(i)) * test_ratio - status.test_ratio_filtered[i]);
+
+				} else {
+					// otherwise, init the filtered test ratio
+					status.test_ratio_filtered[i] = test_ratio;
+				}
+
+				// innovation_filtered
+				if (PX4_ISFINITE(status.innovation_filtered[i])) {
+					status.innovation_filtered[i] += alpha * (innovation(i) - status.innovation_filtered[i]);
+
+				} else {
+					// otherwise, init the filtered innovation
+					status.innovation_filtered[i] = innovation(i);
+				}
+
+				// limit extremes in filtered values
+				static constexpr float kNormalizedInnovationLimit = 2.f;
+				static constexpr float kTestRatioLimit = sq(kNormalizedInnovationLimit);
+
+				if (test_ratio > kTestRatioLimit) {
+
+					status.test_ratio_filtered[i] = math::constrain(status.test_ratio_filtered[i], -kTestRatioLimit, kTestRatioLimit);
+
+					const float innov_limit = kNormalizedInnovationLimit * innovation_gate * sqrtf(innovation_variance(i));
+					status.innovation_filtered[i] = math::constrain(status.innovation_filtered[i], -innov_limit, innov_limit);
 				}
 
 			} else {
-				status.test_ratio[i] = INFINITY;
+				// invalid timestamp_sample, reset
+				status.test_ratio_filtered[i] = test_ratio;
+				status.innovation_filtered[i] = innovation(i);
+			}
+
+			status.test_ratio[i] = test_ratio;
+
+			status.observation[i] = observation(i);
+			status.observation_variance[i] = observation_variance(i);
+
+			status.innovation[i] = innovation(i);
+			status.innovation_variance[i] = innovation_variance(i);
+
+			if ((test_ratio > 1.f)
+			    || !PX4_ISFINITE(test_ratio)
+			    || !PX4_ISFINITE(status.innovation[i])
+			    || !PX4_ISFINITE(status.innovation_variance[i])
+			   ) {
 				innovation_rejected = true;
 			}
 		}
 
+		status.timestamp_sample = timestamp_sample;
+
 		// if any of the innovations are rejected, then the overall innovation is rejected
 		status.innovation_rejected = innovation_rejected;
+
+		// reset
+		status.fused = false;
 	}
 
 	ZeroGyroUpdate _zero_gyro_update{};

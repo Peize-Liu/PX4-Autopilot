@@ -100,7 +100,7 @@ bool Mavlink::_boot_complete = false;
 
 Mavlink::Mavlink() :
 	ModuleParams(nullptr),
-	_receiver(this)
+	_receiver(*this)
 {
 	// initialise parameter cache
 	mavlink_update_parameters();
@@ -438,12 +438,12 @@ Mavlink::serial_instance_exists(const char *device_name, Mavlink *self)
 }
 
 bool
-Mavlink::component_was_seen(int system_id, int component_id, Mavlink *self)
+Mavlink::component_was_seen(int system_id, int component_id, Mavlink &self)
 {
 	LockGuard lg{mavlink_module_mutex};
 
 	for (Mavlink *inst : mavlink_module_instances) {
-		if (inst && (inst != self) && (inst->_receiver.component_was_seen(system_id, component_id))) {
+		if (inst && (inst != &self) && (inst->_receiver.component_was_seen(system_id, component_id))) {
 			return true;
 		}
 	}
@@ -1452,6 +1452,9 @@ Mavlink::configure_streams_to_default(const char *configure_single_stream)
 #if defined(MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS)
 		configure_stream_local("FIGURE_EIGHT_EXECUTION_STATUS", 5.0f);
 #endif // MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS
+#if defined(MAVLINK_MSG_ID_FUEL_STATUS)
+		configure_stream_local("FUEL_STATUS", 1.0f);
+#endif // MAVLINK_MSG_ID_FUEL_STATUS
 #endif // !CONSTRAINED_FLASH
 
 		break;
@@ -1521,6 +1524,9 @@ Mavlink::configure_streams_to_default(const char *configure_single_stream)
 #if defined(MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS)
 		configure_stream_local("FIGURE_EIGHT_EXECUTION_STATUS", 5.0f);
 #endif // MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS
+#if defined(MAVLINK_MSG_ID_FUEL_STATUS)
+		configure_stream_local("FUEL_STATUS", 1.0f);
+#endif // MAVLINK_MSG_ID_FUEL_STATUS
 #endif // !CONSTRAINED_FLASH
 
 		break;
@@ -1586,6 +1592,9 @@ Mavlink::configure_streams_to_default(const char *configure_single_stream)
 #if defined(MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS)
 		configure_stream_local("FIGURE_EIGHT_EXECUTION_STATUS", 2.0f);
 #endif // MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS
+#if defined(MAVLINK_MSG_ID_FUEL_STATUS)
+		configure_stream_local("FUEL_STATUS", 1.0f);
+#endif // MAVLINK_MSG_ID_FUEL_STATUS
 #endif // !CONSTRAINED_FLASH
 
 		break;
@@ -1647,6 +1656,8 @@ Mavlink::configure_streams_to_default(const char *configure_single_stream)
 		configure_stream_local("GPS_GLOBAL_ORIGIN", 1.0f);
 		configure_stream_local("GPS_RAW_INT", unlimited_rate);
 		configure_stream_local("GPS_STATUS", 1.0f);
+		configure_stream_local("GIMBAL_DEVICE_ATTITUDE_STATUS", 0.5f);
+		configure_stream_local("GIMBAL_MANAGER_STATUS", 0.5f);
 		configure_stream_local("HIGHRES_IMU", 50.0f);
 		configure_stream_local("HOME_POSITION", 0.5f);
 		configure_stream_local("HYGROMETER_SENSOR", 1.0f);
@@ -1684,6 +1695,9 @@ Mavlink::configure_streams_to_default(const char *configure_single_stream)
 #if defined(MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS)
 		configure_stream_local("FIGURE_EIGHT_EXECUTION_STATUS", 5.0f);
 #endif // MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS
+#if defined(MAVLINK_MSG_ID_FUEL_STATUS)
+		configure_stream_local("FUEL_STATUS", 2.0f);
+#endif // MAVLINK_MSG_ID_FUEL_STATUS
 #endif // !CONSTRAINED_FLASH
 
 		break;
@@ -1767,6 +1781,9 @@ Mavlink::configure_streams_to_default(const char *configure_single_stream)
 #if defined(MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS)
 		configure_stream_local("FIGURE_EIGHT_EXECUTION_STATUS", 5.0f);
 #endif // MAVLINK_MSG_ID_FIGURE_EIGHT_EXECUTION_STATUS
+#if defined(MAVLINK_MSG_ID_FUEL_STATUS)
+		configure_stream_local("FUEL_STATUS", 1.0f);
+#endif // MAVLINK_MSG_ID_FUEL_STATUS
 #endif // !CONSTRAINED_FLASH
 		break;
 

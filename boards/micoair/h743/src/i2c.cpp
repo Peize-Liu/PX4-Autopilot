@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (c) 2012-2019 PX4 Development Team. All rights reserved.
+ *   Copyright (C) 2021 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,40 +31,9 @@
  *
  ****************************************************************************/
 
-/**
- * @file battery_params_deprecated.c
- *
- * Defines the deprcated single battery configuration which are temporarily kept for backwards compatibility with QGC.
- */
+#include <px4_arch/i2c_hw_description.h>
 
-/**
- * This parameter is deprecated. Please use BAT1_V_EMPTY instead.
- *
- * @group Battery Calibration
- * @category system
- */
-PARAM_DEFINE_FLOAT(BAT_V_EMPTY, 3.6f);
-
-/**
- * This parameter is deprecated. Please use BAT1_V_CHARGED instead.
- *
- * @group Battery Calibration
- * @category system
- */
-PARAM_DEFINE_FLOAT(BAT_V_CHARGED, 4.05f);
-
-/**
- * This parameter is deprecated. Please use BAT1_V_LOAD_DROP instead.
- *
- * @group Battery Calibration
- * @category system
- */
-PARAM_DEFINE_FLOAT(BAT_V_LOAD_DROP, 0.3f);
-
-/**
- * This parameter is deprecated. Please use BAT1_N_CELLS instead.
- *
- * @group Battery Calibration
- * @category system
- */
-PARAM_DEFINE_INT32(BAT_N_CELLS, 3);
+constexpr px4_i2c_bus_t px4_i2c_buses[I2C_BUS_MAX_BUS_ITEMS] = {
+	initI2CBusExternal(1),
+	initI2CBusInternal(2),
+};
